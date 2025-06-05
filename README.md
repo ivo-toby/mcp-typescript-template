@@ -1,3 +1,5 @@
+# Please note; this is a work in progress!
+
 # MCP Server Template
 
 A clean, streamlined template for creating Model Context Protocol (MCP) servers with TypeScript. This template provides a simple, declarative pattern for defining tools, handlers, and prompts without complex initialization logic.
