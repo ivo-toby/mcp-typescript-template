@@ -1,0 +1,21 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP.
+    type: object
+    required:
+      - contentfulDeliveryAccessToken
+      - spaceId
+    properties:
+      contentfulDeliveryAccessToken:
+        type: string
+        description: Your Delivery API token from Contentful
+      spaceId:
+        type: string
+        description: Your Contentful Space ID
+  commandFunction:
+    # A function that produces the CLI command to start the MCP on stdio.
+    |-
+    (config) => ({ command: 'node', args: ['bin/mcp-server.js'], env: { CONTENTFUL_DELIVERY_ACCESS_TOKEN: config.contentfulDeliveryAccessToken, SPACE_ID: config.spaceId } })
