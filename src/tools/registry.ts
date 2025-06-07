@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { zodToJsonSchema } from "zod-to-json-schema"
+import { ToolError, ErrorCode, ErrorUtils } from "../types/errors.js"
 
 export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
   name: string
@@ -60,19 +61,68 @@ class ToolRegistry {
   async executeTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
     const tool = this.tools.get(name)
     if (!tool) {
-      throw new Error(`Unknown tool: ${name}`)
+      throw new ToolError(ErrorCode.TOOL_NOT_FOUND, `Tool '${name}' not found`, {
+        toolName: name,
+        availableTools: Array.from(this.tools.keys()),
+      })
     }
 
     try {
       // Validate input with Zod schema
-      const validatedArgs = tool.inputSchema.parse(args)
+      let validatedArgs: unknown
+      try {
+        validatedArgs = tool.inputSchema.parse(args)
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          throw new ToolError(
+            ErrorCode.TOOL_VALIDATION_FAILED,
+            `Invalid input for tool '${name}': ${error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
+            {
+              toolName: name,
+              validationErrors: error.errors,
+              providedArgs: args,
+            },
+          )
+        }
+        throw error
+      }
 
-      // Execute the handler
-      const result = await tool.handler(validatedArgs)
+      // Execute the handler with error wrapping
+      let result: unknown
+      try {
+        result = await tool.handler(validatedArgs)
+      } catch (error) {
+        ErrorUtils.logError(error, `Tool ${name}`)
+        throw new ToolError(
+          ErrorCode.TOOL_EXECUTION_FAILED,
+          `Tool '${name}' execution failed: ${ErrorUtils.getErrorMessage(error)}`,
+          {
+            toolName: name,
+            originalError: ErrorUtils.getErrorMessage(error),
+            args: validatedArgs,
+          },
+        )
+      }
 
       // Validate output if schema is provided
       if (tool.outputSchema) {
-        tool.outputSchema.parse(result)
+        try {
+          tool.outputSchema.parse(result)
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            ErrorUtils.logError(error, `Tool ${name} output validation`)
+            throw new ToolError(
+              ErrorCode.TOOL_EXECUTION_FAILED,
+              `Tool '${name}' returned invalid output: ${error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
+              {
+                toolName: name,
+                validationErrors: error.errors,
+                actualOutput: result,
+              },
+            )
+          }
+          throw error
+        }
       }
 
       // Format result for MCP
@@ -92,12 +142,20 @@ class ToolRegistry {
         content: [{ type: "text", text: String(result) }],
       }
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        throw new Error(
-          `Invalid input: ${error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
-        )
+      // Re-throw MCP errors as-is
+      if (ErrorUtils.isMCPError(error)) {
+        throw error
       }
-      throw error
+
+      // Wrap unexpected errors
+      throw new ToolError(
+        ErrorCode.TOOL_EXECUTION_FAILED,
+        `Unexpected error in tool '${name}': ${ErrorUtils.getErrorMessage(error)}`,
+        {
+          toolName: name,
+          originalError: ErrorUtils.getErrorMessage(error),
+        },
+      )
     }
   }
 }

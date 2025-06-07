@@ -1,14 +1,3 @@
-export interface PromptDefinition {
-  name: string
-  description: string
-  arguments?: Array<{
-    name: string
-    description: string
-    required?: boolean
-  }>
-  handler: (args?: Record<string, unknown>) => Promise<PromptResult>
-}
-
 export interface PromptResult {
   messages: Array<{
     role: "user" | "assistant" | "system"
@@ -18,6 +7,17 @@ export interface PromptResult {
     }
   }>
   tools?: unknown[]
+}
+
+export interface PromptDefinition {
+  name: string
+  description: string
+  arguments?: Array<{
+    name: string
+    description: string
+    required?: boolean
+  }>
+  handler: (args?: Record<string, unknown>) => Promise<PromptResult>
 }
 
 class PromptRegistry {

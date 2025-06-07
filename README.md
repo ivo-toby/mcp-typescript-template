@@ -1,37 +1,69 @@
-# Please note; this is a work in progress!
-
 # MCP Server Template
 
-A clean, streamlined template for creating Model Context Protocol (MCP) servers with TypeScript. This template provides a simple, declarative pattern for defining tools, handlers, and prompts without complex initialization logic.
+A production-ready, well-structured template for building [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers with TypeScript. This template provides a clean, maintainable foundation for creating MCP servers that can expose tools, prompts, and resources to AI applications.
+
+## What is this template for?
+
+This template is designed for developers who want to:
+
+- **Build MCP servers quickly** with a proven, well-structured foundation
+- **Follow MCP best practices** with a fully compliant implementation
+- **Create maintainable code** with clean abstractions and TypeScript safety
+- **Support multiple transports** (stdio and HTTP) out of the box
+- **Scale their implementation** with modular, registry-based architecture
+
+## Who should use this?
+
+- **AI application developers** building integrations with external data sources and tools
+- **Enterprise developers** creating internal MCP servers for company data and workflows
+- **Open source contributors** building MCP servers for the community
+- **Developers new to MCP** who want to learn best practices from a reference implementation
 
 ## Features
 
-- **Clean Tool Definition**: Define tools with Zod schemas for input/output validation
-- **Resource Management**: Expose data and context through a simple resource registry
-- **Prompt Templates**: Create reusable prompt templates with structured handlers
-- **Type Safety**: Full TypeScript support with proper type inference
-- **Declarative Pattern**: Simple registration system for tools, prompts, and resources
-- **No Complex Loading**: Everything is registered at startup without external dependencies
-- **Extensible**: Easy to add new tools, prompts, and resources
+- ✅ **Full MCP Compliance**: Implements the complete MCP specification
+- ✅ **Dual Transport Support**: Both stdio and HTTP transports included
+- ✅ **Type Safety**: Full TypeScript with strict mode and Zod validation
+- ✅ **Clean Architecture**: Modular design with clear separation of concerns
+- ✅ **Registry Pattern**: Easy registration of tools, prompts, and resources
+- ✅ **Production Ready**: Comprehensive error handling, rate limiting, timeouts, and graceful shutdown
+- ✅ **Developer Experience**: Hot reload, linting, and comprehensive tooling
+- ✅ **Extensible**: Easy to add new capabilities without breaking existing code
 
 ## Quick Start
 
-1. **Install dependencies**:
+### 1. Installation
 
 ```bash
+# Clone or use this template
+git clone <repository-url>
+cd mcp-server-template
+
+# Install dependencies
 npm install
 ```
 
-2. **Build the server**:
+### 2. Build and Run
 
 ```bash
+# Build the server
 npm run build
+
+# Run with stdio transport (default)
+npm start
+
+# Or run with HTTP transport
+npm start -- --enable-http --http-port 3000
 ```
 
-3. **Run the server**:
+### 3. Test the Server
 
 ```bash
-npm start
+# Test with the MCP inspector
+npm run inspect
+
+# Or test HTTP endpoint
+curl http://localhost:3000/health
 ```
 
 ## Project Structure
@@ -39,89 +71,113 @@ npm start
 ```
 src/
 ├── index.ts              # Main server entry point
-├── tools/
-│   ├── registry.ts       # Tool registry and type definitions
-│   ├── examples.ts       # Example tool implementations
-│   ├── custom-tools.ts   # Additional example tools
-│   └── index.ts          # Tool exports
-├── prompts/
-│   ├── registry.ts       # Prompt registry and type definitions
-│   ├── examples.ts       # Example prompt implementations
-│   └── index.ts          # Prompt exports
-└── resources/
-    ├── registry.ts       # Resource registry and type definitions
-    ├── examples.ts       # Example resource implementations
-    ├── custom-resources.ts # Additional example resources
-    └── index.ts          # Resource exports
+├── transports/           # Transport layer implementations
+│   ├── base.ts          # Abstract base class for transports
+│   ├── stdio.ts         # Stdio transport implementation
+│   └── streamable-http.ts # HTTP transport implementation
+├── tools/               # Tool definitions and registry
+│   ├── registry.ts      # Tool registry and type definitions
+│   ├── examples.ts      # Example tool implementations
+│   └── index.ts         # Tool exports
+├── prompts/             # Prompt definitions and registry
+│   ├── registry.ts      # Prompt registry and type definitions
+│   ├── examples.ts      # Example prompt implementations
+│   └── index.ts         # Prompt exports
+├── resources/           # Resource definitions and registry
+│   ├── registry.ts      # Resource registry and type definitions
+│   ├── examples.ts      # Example resource implementations
+│   └── index.ts         # Resource exports
+├── handlers/            # Request handlers (minimal - most logic in registries)
+├── utils/               # Utility functions and server factory
+├── types/               # Additional type definitions
+└── bin/                 # CLI entry point with argument parsing
 ```
 
-## Defining Tools
+## Creating Your First Tool
 
-Tools are defined using a clean, declarative pattern with Zod schemas:
+Tools are functions that AI models can call to perform actions. Here's how to create one:
 
 ```typescript
+// src/tools/my-tools.ts
 import { z } from "zod"
 import { toolRegistry } from "./registry.js"
 
-// Define input schema
-const calculatorInputSchema = z.object({
-  operation: z.enum(["add", "subtract", "multiply", "divide"]),
-  a: z.number(),
-  b: z.number(),
-})
-
-// Define output schema (optional)
-const calculatorOutputSchema = z.object({
-  result: z.number(),
-  operation: z.string(),
+// Define input validation schema
+const weatherInputSchema = z.object({
+  location: z.string().describe("The city or location to get weather for"),
+  units: z.enum(["celsius", "fahrenheit"]).default("celsius"),
 })
 
 // Register the tool
 toolRegistry.register({
-  name: "calculator",
-  description: "Perform basic arithmetic operations",
-  inputSchema: calculatorInputSchema,
-  outputSchema: calculatorOutputSchema,
+  name: "get_weather",
+  description: "Get current weather information for a location",
+  inputSchema: weatherInputSchema,
   handler: async (args) => {
-    const { operation, a, b } = args
-    // Implementation here
-    return { result: a + b, operation: `${a} + ${b}` }
+    const { location, units } = args
+
+    // Your implementation here
+    const weatherData = await fetchWeatherData(location, units)
+
+    return {
+      temperature: weatherData.temp,
+      condition: weatherData.condition,
+      location: location,
+    }
   },
 })
 ```
 
-## Defining Prompts
-
-Prompts are defined with a similar pattern:
+Then import your tools in `src/tools/index.ts`:
 
 ```typescript
+import "./examples.js"
+import "./my-tools.js" // Add this line
+
+export { toolRegistry } from "./registry.js"
+```
+
+## Creating Prompts
+
+Prompts are templates that help users interact with AI models:
+
+```typescript
+// src/prompts/my-prompts.ts
 import { promptRegistry } from "./registry.js"
 
 promptRegistry.register({
   name: "code_review",
-  description: "Generate a code review prompt",
+  description: "Generate a comprehensive code review prompt",
   arguments: [
     {
       name: "code",
       description: "The code to review",
       required: true,
     },
+    {
+      name: "language",
+      description: "Programming language",
+      required: false,
+    },
   ],
   handler: async (args) => {
+    const code = args?.code || ""
+    const language = args?.language || "unknown"
+
     return {
       messages: [
         {
           role: "system",
           content: {
             type: "text",
-            text: "You are an expert code reviewer.",
+            text: "You are an expert code reviewer. Provide constructive feedback focusing on best practices, potential bugs, and improvements.",
           },
         },
         {
           role: "user",
           content: {
             type: "text",
-            text: `Please review: ${args?.code}`,
+            text: `Please review this ${language} code:\n\n${code}`,
           },
         },
       ],
@@ -130,98 +186,28 @@ promptRegistry.register({
 })
 ```
 
-## Key Benefits
+## Creating Resources
 
-### 1. **No Complex Initialization**
-
-Unlike the original server that required loading external schemas and metadata, this template starts immediately with predefined tools.
-
-### 2. **Type-Safe Tool Definitions**
-
-Zod schemas provide runtime validation and compile-time type safety:
+Resources provide contextual data that AI models can access:
 
 ```typescript
-// Input is automatically typed based on schema
-handler: async (args) => {
-  // args.operation is typed as "add" | "subtract" | "multiply" | "divide"
-  // args.a and args.b are typed as number
-}
-```
-
-### 3. **Automatic Registration**
-
-Tools and prompts are automatically registered when their modules are imported:
-
-```typescript
-// In src/tools/index.ts
-import "./examples.js" // Registers all example tools
-export { toolRegistry } from "./registry.js"
-```
-
-### 4. **Clean Error Handling**
-
-The registry handles validation errors and provides clear error messages:
-
-```typescript
-// Invalid input automatically returns helpful error messages
-// Output validation ensures consistency
-```
-
-## Adding New Tools
-
-1. **Create your tool definition** in `src/tools/examples.ts` or a new file:
-
-```typescript
-const myToolSchema = z.object({
-  input: z.string(),
-})
-
-toolRegistry.register({
-  name: "my_tool",
-  description: "My custom tool",
-  inputSchema: myToolSchema,
-  handler: async (args) => {
-    // Your implementation
-    return `Processed: ${args.input}`
-  },
-})
-```
-
-2. **Import the file** in `src/tools/index.ts` if it's a new file:
-
-```typescript
-import "./examples.js"
-import "./my-new-tools.js" // Add this line
-```
-
-3. **Rebuild and restart** the server.
-
-## Defining Resources
-
-Resources provide context data to AI models:
-
-```typescript
-import { z } from "zod"
+// src/resources/my-resources.ts
 import { resourceRegistry } from "./registry.js"
 
-// Define optional arguments schema
-const argsSchema = z.object({
-  format: z.enum(["json", "text"]).default("json"),
-})
-
 resourceRegistry.register({
-  uri: "my://resource",
-  name: "My Resource",
-  description: "Provides some data context",
-  mimeType: "application/json",
-  argsSchema, // optional
-  handler: async (args) => {
+  uri: "file://project-docs",
+  name: "Project Documentation",
+  description: "Access to project documentation and guides",
+  mimeType: "text/markdown",
+  handler: async () => {
+    const docs = await loadProjectDocumentation()
+
     return {
       contents: [
         {
-          uri: "my://resource",
-          mimeType: "application/json",
-          text: JSON.stringify({ data: "example" }, null, 2),
+          uri: "file://project-docs",
+          mimeType: "text/markdown",
+          text: docs,
         },
       ],
     }
@@ -229,60 +215,226 @@ resourceRegistry.register({
 })
 ```
 
-## Adding New Prompts
+## Error Handling
 
-Follow the same pattern in the `src/prompts/` directory.
+This template includes comprehensive error handling for production use:
 
-## Adding New Resources
-
-Follow the same pattern in the `src/resources/` directory.
-
-## Environment Variables
-
-This template doesn't require environment variables by default, but you can add them as needed for your specific tools.
-
-## Development
-
-- `npm run build` - Build the server
-- `npm run watch` - Watch for changes and rebuild
-- `npm run dev` - Development mode with auto-restart
-- `npm run lint` - Run ESLint
-- `npm run test` - Run tests
-
-## Customization
-
-### Server Configuration
-
-Modify `src/index.ts` to change server name, version, or capabilities:
+### Error Types
 
 ```typescript
-const server = new Server(
-  {
-    name: "my-custom-server",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: toolRegistry.getToolDefinitions(),
-      prompts: promptRegistry.getPromptDefinitions(),
-      resources: resourceRegistry.getResourceDefinitions(),
-    },
-  },
-)
+import { ToolError, ErrorCode } from "./types/errors.js"
+
+// Throw specific error types
+throw new ToolError(ErrorCode.TOOL_NOT_FOUND, "Tool 'example' not found", {
+  toolName: "example",
+  availableTools: ["tool1", "tool2"],
+})
 ```
 
-### Transport Options
+### HTTP Transport Features
 
-The template uses stdio transport by default. You can add HTTP transport or other options as needed.
+- **Rate Limiting**: Configurable per-IP rate limiting
+- **Request Timeouts**: Automatic timeout handling
+- **Session Management**: Automatic session cleanup and limits
+- **Request Size Limits**: Configurable payload size limits
+- **Graceful Shutdown**: Proper cleanup of all resources
 
-## Migration from Complex Servers
+```typescript
+// Configure HTTP transport with error handling
+const server = new StreamableHttpServer({
+  port: 3000,
+  rateLimitConfig: {
+    windowMs: 60000, // 1 minute
+    maxRequests: 100, // 100 requests per minute
+  },
+  requestTimeoutMs: 30000, // 30 second timeout
+  maxConcurrentSessions: 50,
+  sessionTimeoutMs: 1800000, // 30 minutes
+  enableRequestLogging: true,
+})
+```
 
-If you're migrating from a server with complex initialization:
+### Error Monitoring
 
-1. **Extract tool logic** from handlers into simple functions
-2. **Define Zod schemas** for your inputs and outputs
-3. **Register tools** using the new pattern
-4. **Remove initialization code** that loads external dependencies
-5. **Test** that all tools work as expected
+The server provides detailed error information:
 
-This template prioritizes simplicity and maintainability over complex dynamic loading scenarios.
+- **Structured Error Codes**: Consistent error categorization
+- **Error Context**: Additional details for debugging
+- **Request Tracing**: Optional request/response logging
+- **Health Endpoints**: Monitor server and session status
+
+## Transport Options
+
+### Stdio Transport (Default)
+
+Perfect for local development and integration with MCP clients:
+
+```bash
+npm start
+```
+
+### HTTP Transport
+
+Ideal for remote access and web-based integrations:
+
+```bash
+npm start -- --enable-http --http-port 3000
+```
+
+The HTTP transport includes:
+
+- Session management
+- CORS support
+- Health check endpoint (`/health`)
+- Graceful shutdown
+
+## Development Workflow
+
+```bash
+# Development with hot reload
+npm run dev
+
+# Type checking
+npm run typecheck
+
+# Linting
+npm run lint
+npm run lint:fix
+
+# Testing
+npm run test
+npm run test:watch
+
+# Building
+npm run build
+npm run clean  # Clean build artifacts
+```
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# HTTP Transport
+ENABLE_HTTP_SERVER=true
+HTTP_PORT=3000
+HTTP_HOST=localhost
+
+# Add your own environment variables as needed
+MY_API_KEY=your-api-key
+DATABASE_URL=your-database-url
+```
+
+### CLI Arguments
+
+```bash
+# HTTP configuration
+--enable-http              # Enable HTTP transport
+--http-port 3000          # Set HTTP port
+--http-host localhost     # Set HTTP host
+
+# Custom arguments (extend in bin/mcp-server.js)
+--example-variable value  # Example custom argument
+```
+
+## Best Practices
+
+### 1. Tool Design
+
+- **Single Responsibility**: Each tool should do one thing well
+- **Input Validation**: Always use Zod schemas for type safety
+- **Error Handling**: Provide clear, actionable error messages
+- **Documentation**: Use descriptive names and descriptions
+
+### 2. Code Organization
+
+- **Modular Structure**: Keep related functionality together
+- **Type Safety**: Leverage TypeScript's strict mode
+- **Clean Code**: Follow the established patterns in the template
+- **Testing**: Write tests for your tools and handlers
+
+### 3. Performance
+
+- **Async Operations**: Use async/await for I/O operations
+- **Resource Management**: Clean up resources properly
+- **Caching**: Cache expensive operations when appropriate
+- **Error Recovery**: Handle failures gracefully
+
+## Deployment
+
+### Local Development
+
+```bash
+npm run build
+npm start
+```
+
+### Docker
+
+```bash
+docker build -t my-mcp-server .
+docker run -p 3000:3000 my-mcp-server --enable-http
+```
+
+### Production
+
+- Use process managers like PM2 or systemd
+- Set up proper logging and monitoring
+- Configure environment variables securely
+- Use HTTPS for HTTP transport in production
+
+## Examples and Use Cases
+
+This template includes examples for:
+
+- **Calculator Tool**: Basic arithmetic operations
+- **Echo Tool**: Message processing and repetition
+- **Time Tool**: Current time in various formats
+- **Code Review Prompt**: Structured code review templates
+- **Documentation Resources**: Access to project documentation
+
+Common use cases for MCP servers:
+
+- **Database Integration**: Query and update databases
+- **API Wrappers**: Integrate with external APIs
+- **File System Access**: Read and write files
+- **Development Tools**: Code analysis, testing, deployment
+- **Business Logic**: Custom workflows and processes
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Build Errors**: Ensure TypeScript and dependencies are up to date
+2. **Transport Issues**: Check port availability and firewall settings
+3. **Tool Registration**: Verify tools are imported in index files
+4. **Type Errors**: Use proper Zod schemas and TypeScript types
+
+### Debug Mode
+
+```bash
+# Enable debug logging
+DEBUG=mcp:* npm start
+
+# Inspect server capabilities
+npm run inspect
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
+
+## License
+
+MIT License - see LICENSE file for details.
+
+## Resources
+
+- [Model Context Protocol Documentation](https://modelcontextprotocol.io)
+- [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
+- [MCP Specification](https://modelcontextprotocol.io/specification)
+- [Example MCP Servers](https://github.com/modelcontextprotocol/servers)

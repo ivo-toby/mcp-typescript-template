@@ -122,3 +122,85 @@ promptRegistry.register({
     }
   },
 })
+
+// Example: Bug fix prompt
+promptRegistry.register({
+  name: "fix_bug",
+  description: "Analyze code and suggest bug fixes",
+  arguments: [
+    {
+      name: "code",
+      description: "The buggy code to analyze",
+      required: true,
+    },
+    {
+      name: "error_message",
+      description: "Error message or description of the bug",
+      required: false,
+    },
+  ],
+  handler: async (args) => {
+    const code = args?.code || ""
+    const errorMessage = args?.error_message || "No specific error provided"
+
+    return {
+      messages: [
+        {
+          role: "system" as const,
+          content: {
+            type: "text" as const,
+            text: "You are a debugging expert. Analyze the code, identify potential issues, and provide clear solutions.",
+          },
+        },
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: `Please help fix this code. Error: ${errorMessage}\n\nCode:\n\`\`\`\n${code}\n\`\`\``,
+          },
+        },
+      ],
+    }
+  },
+})
+
+// Example: Refactor prompt
+promptRegistry.register({
+  name: "refactor_code",
+  description: "Suggest code refactoring improvements",
+  arguments: [
+    {
+      name: "code",
+      description: "The code to refactor",
+      required: true,
+    },
+    {
+      name: "focus",
+      description: "Refactoring focus (performance, readability, maintainability)",
+      required: false,
+    },
+  ],
+  handler: async (args) => {
+    const code = args?.code || ""
+    const focus = args?.focus || "general improvement"
+
+    return {
+      messages: [
+        {
+          role: "system" as const,
+          content: {
+            type: "text" as const,
+            text: `You are a code refactoring expert. Focus on ${focus} while maintaining functionality.`,
+          },
+        },
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: `Please refactor this code:\n\n\`\`\`\n${code}\n\`\`\``,
+          },
+        },
+      ],
+    }
+  },
+})
