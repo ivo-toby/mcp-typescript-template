@@ -1,6 +1,5 @@
 import { beforeAll, expect } from "vitest"
 import dotenv from "dotenv"
-import { clearCache } from "../src/handlers/graphql-handlers"
 
 // Load environment variables from .env file
 dotenv.config()
@@ -18,9 +17,6 @@ beforeAll(() => {
   if (!process.env.ENVIRONMENT_ID) {
     process.env.ENVIRONMENT_ID = "master"
   }
-
-  // Clear cache at start
-  clearCache()
 })
 
 // Add custom matcher for error responses
