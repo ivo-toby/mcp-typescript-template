@@ -1,5 +1,7 @@
 # MCP Server Template
 
+**Please note; this is a work in progress!**
+
 A production-ready, well-structured template for building [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers with TypeScript. This template provides a clean, maintainable foundation for creating MCP servers that can expose tools, prompts, and resources to AI applications.
 
 ## What is this template for?
