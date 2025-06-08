@@ -66,11 +66,36 @@ npm run inspect
 curl http://localhost:3000/health
 ```
 
+## Architecture
+
+This template is designed with a clean, modular architecture to promote maintainability and extensibility. Here's a high-level overview of the key components:
+
+### Core Components
+
+- **`src/index.ts`**: The main entry point of the server. It reads the configuration and initializes the appropriate transport.
+- **`src/config.ts`**: Centralized configuration management using `zod`. All environment variables are defined and validated in this file, providing a single source of truth for configuration.
+- **`src/transports`**: This directory contains the transport implementations. The template includes both `stdio` and `streamable-http` transports. The `streamable-http` transport is a robust implementation that includes session management, rate limiting, and other production-ready features.
+- **`src/tools`**, **`src/prompts`**, **`src/resources`**: These directories contain the registries for tools, prompts, and resources. The registry pattern makes it easy to add new capabilities to the server by simply creating a new file and registering the new tool, prompt, or resource.
+
+### Session Management
+
+Session management is handled directly within the `StreamableHttpServer` class. This simplifies the architecture and removes the need for a separate session handler. The `StreamableHttpServer` is responsible for:
+
+- Creating new sessions
+- Cleaning up sessions on timeout or disconnection
+- Enforcing session limits
+- Providing session-related health check information
+
+### Error Handling
+
+The template includes a comprehensive error handling system. All errors are normalized to a common format and include a unique error code, making it easy to debug and handle errors in a consistent way. The `src/types/errors.ts` file contains the definitions for all custom error types.
+
 ## Project Structure
 
 ```
 src/
 ├── index.ts              # Main server entry point
+├── config.ts             # Centralized configuration management
 ├── transports/           # Transport layer implementations
 │   ├── base.ts          # Abstract base class for transports
 │   ├── stdio.ts         # Stdio transport implementation
@@ -87,7 +112,6 @@ src/
 │   ├── registry.ts      # Resource registry and type definitions
 │   ├── examples.ts      # Example resource implementations
 │   └── index.ts         # Resource exports
-├── handlers/            # Request handlers (minimal - most logic in registries)
 ├── utils/               # Utility functions and server factory
 ├── types/               # Additional type definitions
 └── bin/                 # CLI entry point with argument parsing
@@ -248,9 +272,6 @@ const server = new StreamableHttpServer({
     maxRequests: 100, // 100 requests per minute
   },
   requestTimeoutMs: 30000, // 30 second timeout
-  maxConcurrentSessions: 50,
-  sessionTimeoutMs: 1800000, // 30 minutes
-  enableRequestLogging: true,
 })
 ```
 
