@@ -5,17 +5,35 @@ startCommand:
   configSchema:
     # JSON Schema defining the configuration options for the MCP.
     type: object
-    required:
-      - contentfulDeliveryAccessToken
-      - spaceId
     properties:
-      contentfulDeliveryAccessToken:
+      enableHttpServer:
+        type: boolean
+        description: Enable HTTP transport
+        default: false
+      httpPort:
+        type: number
+        description: HTTP server port
+        default: 3000
+      httpHost:
         type: string
-        description: Your Delivery API token from Contentful
-      spaceId:
-        type: string
-        description: Your Contentful Space ID
+        description: HTTP server host
+        default: "localhost"
   commandFunction:
     # A function that produces the CLI command to start the MCP on stdio.
     |-
-    (config) => ({ command: 'node', args: ['bin/mcp-server.js'], env: { CONTENTFUL_DELIVERY_ACCESS_TOKEN: config.contentfulDeliveryAccessToken, SPACE_ID: config.spaceId } })
+    (config) => {
+      const args = ['bin/mcp-server.js'];
+      const env = { 
+      };
+      
+      if (config.enableHttpServer) {
+        args.push('--enable-http');
+        args.push('--http-port', config.httpPort.toString());
+        args.push('--http-host', config.httpHost);
+        env.ENABLE_HTTP_SERVER = 'true';
+        env.HTTP_PORT = config.httpPort.toString();
+        env.HTTP_HOST = config.httpHost;
+      }
+      
+      return { command: 'node', args, env };
+    }
