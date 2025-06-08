@@ -219,14 +219,14 @@ export class ErrorUtils {
    * Log error with appropriate level
    */
   static logError(error: unknown, context?: string) {
-    const prefix = context ? `[${context}]` : ""
+    const prefix = context ? `[${context}] ` : ""
 
     if (ErrorUtils.isMCPError(error)) {
-      console.error(`${prefix} MCP Error [${error.code}]:`, error.message, error.details)
+      console.error(`${prefix}MCP Error [${error.code}]:`, error.message, error.details)
     } else if (error instanceof Error) {
-      console.error(`${prefix} Error:`, error.message, error.stack)
+      console.error(`${prefix}Error:`, error.message, error.stack)
     } else {
-      console.error(`${prefix} Unknown error:`, error)
+      console.error(`${prefix}Unknown error:`, error)
     }
   }
 

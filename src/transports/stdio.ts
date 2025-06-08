@@ -45,6 +45,7 @@ export class StdioServer extends BaseTransportServer {
   public async stop(): Promise<void> {
     if (this.transport) {
       await this.transport.close()
+      this.transport = undefined
     }
   }
 }

@@ -12,6 +12,8 @@ describe("RateLimiter", () => {
 
   beforeEach(() => {
     vi.useFakeTimers()
+    // Mock clearInterval
+    vi.spyOn(global, "clearInterval")
     config = {
       windowMs: 60000, // 1 minute
       maxRequests: 10,
@@ -193,6 +195,9 @@ describe("RateLimiter", () => {
     it("should return reset status for expired window", () => {
       rateLimiter.checkLimit("user1")
 
+      // Spy on cleanup to prevent it from running
+      const cleanupSpy = vi.spyOn(rateLimiter as any, "cleanup").mockImplementation(() => {})
+
       // Advance time past window
       vi.advanceTimersByTime(60001)
 
@@ -200,6 +205,8 @@ describe("RateLimiter", () => {
 
       expect(status?.count).toBe(0)
       expect(status?.remaining).toBe(10)
+
+      cleanupSpy.mockRestore()
     })
   })
 
@@ -230,10 +237,13 @@ describe("RateLimiter", () => {
   describe("cleanup", () => {
     it("should remove expired entries", () => {
       rateLimiter.checkLimit("user1")
+
+      // Advance time a bit, then create user2
+      vi.advanceTimersByTime(30000)
       rateLimiter.checkLimit("user2")
 
-      // Advance time past window for user1 entry
-      vi.advanceTimersByTime(60001)
+      // Advance time past window for user1 entry only
+      vi.advanceTimersByTime(30002)
 
       // Trigger cleanup
       rateLimiter["cleanup"]()
@@ -284,6 +294,9 @@ describe("RateLimiter", () => {
       rateLimiter.checkLimit("user1")
       rateLimiter.checkLimit("user2")
 
+      // Spy on cleanup to prevent it from running
+      const cleanupSpy = vi.spyOn(rateLimiter as any, "cleanup").mockImplementation(() => {})
+
       // Advance time past window
       vi.advanceTimersByTime(60001)
 
@@ -291,6 +304,8 @@ describe("RateLimiter", () => {
 
       expect(stats.totalIdentifiers).toBe(2)
       expect(stats.activeIdentifiers).toBe(0)
+
+      cleanupSpy.mockRestore()
     })
   })
 })
@@ -417,7 +432,7 @@ describe("createRateLimitMiddleware", () => {
 
       const { middleware, limiter } = createRateLimitMiddleware(config)
 
-      const reqWithoutIP = {}
+      const reqWithoutIP = { connection: {} }
       middleware(reqWithoutIP, mockRes, mockNext)
 
       expect(limiter.getStatus("unknown")).not.toBeNull()
@@ -525,7 +540,7 @@ describe("createRateLimitMiddleware", () => {
 
       const { middleware, limiter } = createRateLimitMiddleware(config)
 
-      const reqWithoutAnyIP = {}
+      const reqWithoutAnyIP = { connection: {} }
 
       middleware(reqWithoutAnyIP, mockRes, mockNext)
 

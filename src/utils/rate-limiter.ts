@@ -1,3 +1,4 @@
+import { ANNIE } from "../types/annie.js"
 import { TransportError, ErrorCode } from "../types/errors.js"
 
 export interface RateLimitConfig {
@@ -113,10 +114,15 @@ export class RateLimiter {
 
     const now = Date.now()
     if (now >= entry.resetTime) {
+      // Reset the entry for expired window
+      entry.count = 0
+      entry.resetTime = now + this.config.windowMs
+      entry.firstRequestTime = now
+
       return {
         count: 0,
         remaining: this.config.maxRequests,
-        resetTime: now + this.config.windowMs,
+        resetTime: entry.resetTime,
       }
     }
 
@@ -196,7 +202,7 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
   const limiter = new RateLimiter(config)
 
   return {
-    middleware: (req: any, res: any, next: any) => {
+    middleware: (req: ANNIE, res: ANNIE, next: ANNIE) => {
       // Use IP address as default identifier, but allow custom extraction
       const identifier = req.ip || req.connection.remoteAddress || "unknown"
       const result = limiter.checkLimit(identifier)

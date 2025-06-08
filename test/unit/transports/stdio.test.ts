@@ -9,11 +9,14 @@ vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
   })),
 }))
 
+// Create a mock server that will be reused
+const mockServer = {
+  setRequestHandler: vi.fn(),
+  connect: vi.fn().mockResolvedValue(undefined),
+}
+
 vi.mock("../../../src/utils/server-factory.js", () => ({
-  createMCPServer: vi.fn(() => ({
-    setRequestHandler: vi.fn(),
-    connect: vi.fn().mockResolvedValue(undefined),
-  })),
+  createMCPServer: vi.fn(() => mockServer),
 }))
 
 // Mock console.error to avoid noise in tests
@@ -29,18 +32,15 @@ afterEach(() => {
 describe("StdioServer", () => {
   let stdioServer: StdioServer
   let mockTransport: any
-  let mockServer: any
 
   beforeEach(() => {
     vi.clearAllMocks()
 
+    // Reset the mock server to default state
+    mockServer.connect.mockResolvedValue(undefined)
+
     mockTransport = {
       close: vi.fn().mockResolvedValue(undefined),
-    }
-
-    mockServer = {
-      setRequestHandler: vi.fn(),
-      connect: vi.fn().mockResolvedValue(undefined),
     }
 
     // Mock the StdioServerTransport constructor

@@ -6,6 +6,18 @@ import { promptRegistry } from "../../../src/prompts/registry"
 import { resourceRegistry } from "../../../src/resources/registry"
 import packageJson from "../../../package.json"
 
+// Mock the SDK Server
+vi.mock("@modelcontextprotocol/sdk/server/index.js", () => {
+  return {
+    Server: vi.fn().mockImplementation((info, init) => {
+      return {
+        info,
+        init,
+      }
+    }),
+  }
+})
+
 // Mock the registries
 vi.mock("../../../src/tools/registry")
 vi.mock("../../../src/prompts/registry")
@@ -17,6 +29,7 @@ describe("createMCPServer", () => {
   const mockResourceDefinitions = { MOCK_RESOURCE: {} }
 
   beforeEach(() => {
+    vi.clearAllMocks()
     vi.mocked(toolRegistry.getToolDefinitions).mockReturnValue(mockToolDefinitions)
     vi.mocked(promptRegistry.getPromptDefinitions).mockReturnValue(mockPromptDefinitions)
     vi.mocked(resourceRegistry.getResourceDefinitions).mockReturnValue(mockResourceDefinitions)
@@ -25,7 +38,7 @@ describe("createMCPServer", () => {
   it("should create a server with default configuration", () => {
     const server = createMCPServer()
 
-    expect(server).toBeInstanceOf(Server)
+    expect(Server).toHaveBeenCalledTimes(1)
     // @ts-expect-error - private property access
     expect(server.info).toEqual({
       name: packageJson.name,
@@ -49,7 +62,7 @@ describe("createMCPServer", () => {
     }
     const server = createMCPServer(customConfig)
 
-    expect(server).toBeInstanceOf(Server)
+    expect(Server).toHaveBeenCalledTimes(1)
     // @ts-expect-error - private property access
     expect(server.info).toEqual({
       name: "CustomServer",

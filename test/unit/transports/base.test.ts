@@ -5,6 +5,17 @@ import { toolRegistry } from "../../../src/tools/index.js"
 import { promptRegistry } from "../../../src/prompts/index.js"
 import { resourceRegistry } from "../../../src/resources/index.js"
 import { ToolError, PromptError, ResourceError, ErrorCode } from "../../../src/types/errors.js"
+import { createMCPServer } from "../../../src/utils/server-factory.js"
+
+// Mock the SDK types
+vi.mock("@modelcontextprotocol/sdk/types.js", () => ({
+  ListToolsRequestSchema: { properties: { method: { const: "tools/list" } } },
+  ListPromptsRequestSchema: { properties: { method: { const: "prompts/list" } } },
+  GetPromptRequestSchema: { properties: { method: { const: "prompts/get" } } },
+  CallToolRequestSchema: { properties: { method: { const: "tools/call" } } },
+  ListResourcesRequestSchema: { properties: { method: { const: "resources/list" } } },
+  ReadResourceRequestSchema: { properties: { method: { const: "resources/read" } } },
+}))
 
 // Mock the registries
 vi.mock("../../../src/tools/index.js", () => ({
@@ -29,10 +40,17 @@ vi.mock("../../../src/resources/index.js", () => ({
 }))
 
 vi.mock("../../../src/utils/server-factory.js", () => ({
-  createMCPServer: vi.fn(() => ({
-    setRequestHandler: vi.fn(),
-    connect: vi.fn(),
-  })),
+  createMCPServer: vi.fn(() => {
+    const handlers = new Map()
+    return {
+      setRequestHandler: vi.fn((schema, handler) => {
+        const key = schema.properties.method.const
+        handlers.set(key, handler)
+      }),
+      getHandler: (key: string) => handlers.get(key),
+      connect: vi.fn(),
+    }
+  }),
 }))
 
 // Create a concrete implementation for testing
@@ -66,15 +84,13 @@ describe("BaseTransportServer", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     testServer = new TestTransportServer()
-    mockServer = {
-      setRequestHandler: vi.fn(),
-    }
+    mockServer = createMCPServer()
   })
 
   describe("createConfiguredServer", () => {
     it("should create a server with handlers configured", () => {
       expect(testServer.server).toBeDefined()
-      expect(testServer.server.setRequestHandler).toBeDefined()
+      expect(testServer.server.setRequestHandler).toHaveBeenCalledTimes(6)
     })
   })
 
@@ -84,7 +100,7 @@ describe("BaseTransportServer", () => {
     })
 
     it("should set up all required request handlers", () => {
-      expect(mockServer.setRequestHandler).toHaveBeenCalledTimes(5)
+      expect(mockServer.setRequestHandler).toHaveBeenCalledTimes(6)
     })
 
     describe("List Tools Handler", () => {
@@ -95,10 +111,7 @@ describe("BaseTransportServer", () => {
         ]
         ;(toolRegistry.getToolsList as Mock).mockReturnValue(mockTools)
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "tools/list",
-        )?.[1]
-
+        const handler = mockServer.getHandler("tools/list")
         const result = await handler()
         expect(result).toEqual({ tools: mockTools })
       })
@@ -108,10 +121,7 @@ describe("BaseTransportServer", () => {
           throw new Error("Tools list error")
         })
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "tools/list",
-        )?.[1]
-
+        const handler = mockServer.getHandler("tools/list")
         await expect(handler()).rejects.toThrow(ToolError)
       })
     })
@@ -124,10 +134,7 @@ describe("BaseTransportServer", () => {
         ]
         ;(promptRegistry.getPromptsList as Mock).mockReturnValue(mockPrompts)
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "prompts/list",
-        )?.[1]
-
+        const handler = mockServer.getHandler("prompts/list")
         const result = await handler()
         expect(result).toEqual({ prompts: mockPrompts })
       })
@@ -137,10 +144,7 @@ describe("BaseTransportServer", () => {
           throw new Error("Prompts list error")
         })
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "prompts/list",
-        )?.[1]
-
+        const handler = mockServer.getHandler("prompts/list")
         await expect(handler()).rejects.toThrow(PromptError)
       })
     })
@@ -158,10 +162,7 @@ describe("BaseTransportServer", () => {
         }
         ;(promptRegistry.executePrompt as Mock).mockResolvedValue(mockResult)
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "prompts/get",
-        )?.[1]
-
+        const handler = mockServer.getHandler("prompts/get")
         const request = {
           params: { name: "test-prompt", arguments: { input: "test" } },
         }
@@ -175,10 +176,7 @@ describe("BaseTransportServer", () => {
       })
 
       it("should handle missing prompt name", async () => {
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "prompts/get",
-        )?.[1]
-
+        const handler = mockServer.getHandler("prompts/get")
         const request = { params: {} }
 
         await expect(handler(request)).rejects.toThrow(PromptError)
@@ -187,10 +185,7 @@ describe("BaseTransportServer", () => {
       it("should handle prompt execution errors", async () => {
         ;(promptRegistry.executePrompt as Mock).mockRejectedValue(new Error("Execution failed"))
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "prompts/get",
-        )?.[1]
-
+        const handler = mockServer.getHandler("prompts/get")
         const request = { params: { name: "test-prompt" } }
 
         await expect(handler(request)).rejects.toThrow(PromptError)
@@ -200,10 +195,7 @@ describe("BaseTransportServer", () => {
         const mcpError = new PromptError(ErrorCode.PROMPT_NOT_FOUND, "Prompt not found")
         ;(promptRegistry.executePrompt as Mock).mockRejectedValue(mcpError)
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "prompts/get",
-        )?.[1]
-
+        const handler = mockServer.getHandler("prompts/get")
         const request = { params: { name: "test-prompt" } }
 
         await expect(handler(request)).rejects.toBe(mcpError)
@@ -213,14 +205,12 @@ describe("BaseTransportServer", () => {
     describe("Call Tool Handler", () => {
       it("should execute tool successfully", async () => {
         const mockResult = {
-          content: [{ type: "text" as const, text: "Tool result" }],
+          content: [{ type: "text" as const, text: "Success" }],
+          isError: false,
         }
         ;(toolRegistry.executeTool as Mock).mockResolvedValue(mockResult)
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "tools/call",
-        )?.[1]
-
+        const handler = mockServer.getHandler("tools/call")
         const request = {
           params: { name: "test-tool", arguments: { input: "test" } },
         }
@@ -228,18 +218,14 @@ describe("BaseTransportServer", () => {
         const result = await handler(request)
         expect(result).toEqual({
           content: mockResult.content,
-          isError: undefined,
+          isError: mockResult.isError,
         })
         expect(toolRegistry.executeTool).toHaveBeenCalledWith("test-tool", { input: "test" })
       })
 
       it("should handle missing tool name", async () => {
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "tools/call",
-        )?.[1]
-
+        const handler = mockServer.getHandler("tools/call")
         const request = { params: {} }
-
         const result = await handler(request)
         expect(result.isError).toBe(true)
         expect(result.content[0].text).toContain("Tool name is required")
@@ -248,12 +234,8 @@ describe("BaseTransportServer", () => {
       it("should handle tool execution errors", async () => {
         ;(toolRegistry.executeTool as Mock).mockRejectedValue(new Error("Tool execution failed"))
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "tools/call",
-        )?.[1]
-
+        const handler = mockServer.getHandler("tools/call")
         const request = { params: { name: "test-tool" } }
-
         const result = await handler(request)
         expect(result.isError).toBe(true)
         expect(result.content[0].text).toContain("Tool execution failed")
@@ -261,17 +243,13 @@ describe("BaseTransportServer", () => {
 
       it("should handle error responses with isError flag", async () => {
         const errorResponse = {
-          content: [{ type: "text" as const, text: "Custom error" }],
+          content: [{ type: "text" as const, text: "Formatted error" }],
           isError: true,
         }
         ;(toolRegistry.executeTool as Mock).mockRejectedValue(errorResponse)
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "tools/call",
-        )?.[1]
-
+        const handler = mockServer.getHandler("tools/call")
         const request = { params: { name: "test-tool" } }
-
         const result = await handler(request)
         expect(result).toBe(errorResponse)
       })
@@ -280,12 +258,8 @@ describe("BaseTransportServer", () => {
         const mcpError = new ToolError(ErrorCode.TOOL_NOT_FOUND, "Tool not found")
         ;(toolRegistry.executeTool as Mock).mockRejectedValue(mcpError)
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "tools/call",
-        )?.[1]
-
+        const handler = mockServer.getHandler("tools/call")
         const request = { params: { name: "test-tool" } }
-
         const result = await handler(request)
         expect(result.isError).toBe(true)
         expect(result.content[0].text).toBe("Tool not found")
@@ -295,15 +269,12 @@ describe("BaseTransportServer", () => {
     describe("List Resources Handler", () => {
       it("should return resources list successfully", async () => {
         const mockResources = [
-          { uri: "test://resource1", name: "Resource 1" },
-          { uri: "test://resource2", name: "Resource 2" },
+          { name: "resource1", description: "First resource" },
+          { name: "resource2", description: "Second resource" },
         ]
         ;(resourceRegistry.getResourcesList as Mock).mockReturnValue(mockResources)
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "resources/list",
-        )?.[1]
-
+        const handler = mockServer.getHandler("resources/list")
         const result = await handler()
         expect(result).toEqual({ resources: mockResources })
       })
@@ -313,30 +284,17 @@ describe("BaseTransportServer", () => {
           throw new Error("Resources list error")
         })
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "resources/list",
-        )?.[1]
-
+        const handler = mockServer.getHandler("resources/list")
         await expect(handler()).rejects.toThrow(ResourceError)
       })
     })
 
     describe("Read Resource Handler", () => {
       it("should read resource successfully", async () => {
-        const mockContent = {
-          contents: [
-            {
-              uri: "test://resource",
-              text: "Resource content",
-            },
-          ],
-        }
+        const mockContent = { contents: "resource content" }
         ;(resourceRegistry.readResource as Mock).mockResolvedValue(mockContent)
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "resources/read",
-        )?.[1]
-
+        const handler = mockServer.getHandler("resources/read")
         const request = { params: { uri: "test://resource" } }
 
         const result = await handler(request)
@@ -345,10 +303,7 @@ describe("BaseTransportServer", () => {
       })
 
       it("should handle missing resource URI", async () => {
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "resources/read",
-        )?.[1]
-
+        const handler = mockServer.getHandler("resources/read")
         const request = { params: {} }
 
         await expect(handler(request)).rejects.toThrow(ResourceError)
@@ -357,10 +312,7 @@ describe("BaseTransportServer", () => {
       it("should handle resource read errors", async () => {
         ;(resourceRegistry.readResource as Mock).mockRejectedValue(new Error("Read failed"))
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "resources/read",
-        )?.[1]
-
+        const handler = mockServer.getHandler("resources/read")
         const request = { params: { uri: "test://resource" } }
 
         await expect(handler(request)).rejects.toThrow(ResourceError)
@@ -370,10 +322,7 @@ describe("BaseTransportServer", () => {
         const mcpError = new ResourceError(ErrorCode.RESOURCE_NOT_FOUND, "Resource not found")
         ;(resourceRegistry.readResource as Mock).mockRejectedValue(mcpError)
 
-        const handler = mockServer.setRequestHandler.mock.calls.find(
-          (call) => call[0].properties?.method?.const === "resources/read",
-        )?.[1]
-
+        const handler = mockServer.getHandler("resources/read")
         const request = { params: { uri: "test://resource" } }
 
         await expect(handler(request)).rejects.toBe(mcpError)

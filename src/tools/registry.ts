@@ -92,6 +92,11 @@ class ToolRegistry {
       try {
         result = await tool.handler(validatedArgs)
       } catch (error) {
+        // Re-throw MCP errors as-is
+        if (ErrorUtils.isMCPError(error)) {
+          throw error
+        }
+
         ErrorUtils.logError(error, `Tool ${name}`)
         throw new ToolError(
           ErrorCode.TOOL_EXECUTION_FAILED,
