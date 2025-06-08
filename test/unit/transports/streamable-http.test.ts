@@ -47,6 +47,8 @@ describe("StreamableHttpServer", () => {
   const mockSDKServer = {
     connect: vi.fn().mockResolvedValue(undefined),
     handleRequest: vi.fn(),
+    setRequestHandler: vi.fn(),
+    close: vi.fn().mockResolvedValue(undefined),
   }
 
   beforeEach(() => {
