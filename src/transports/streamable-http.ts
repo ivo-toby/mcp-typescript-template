@@ -283,7 +283,7 @@ export class StreamableHttpServer extends BaseTransportServer {
 
     if (isInitialize) {
       const transport = await this.createNewSession()
-      await transport.handleRequest(req, res)
+      await transport.handleRequest(req, res, req.body)
     } else {
       if (!sessionId) {
         throw new TransportError(
@@ -296,7 +296,7 @@ export class StreamableHttpServer extends BaseTransportServer {
         throw new TransportError(ErrorCode.TRANSPORT_INVALID_SESSION, "Invalid session ID")
       }
       this.refreshSessionTimeout(sessionId)
-      await transport.handleRequest(req, res)
+      await transport.handleRequest(req, res, req.body)
     }
   }
 
@@ -334,7 +334,7 @@ export class StreamableHttpServer extends BaseTransportServer {
       throw new TransportError(ErrorCode.TRANSPORT_INVALID_SESSION, "Invalid session ID")
     }
 
-    await transport.handleRequest(req, res)
+    await transport.handleRequest(req, res, req.body)
 
     this.cleanupSession(sessionId)
   }
@@ -427,6 +427,10 @@ export class StreamableHttpServer extends BaseTransportServer {
         this.cleanupSession(transport.sessionId)
       }
     }
+
+    // Create and connect a new MCP server instance for this session
+    const server = this.createConfiguredServer()
+    await server.connect(transport)
 
     return transport
   }
