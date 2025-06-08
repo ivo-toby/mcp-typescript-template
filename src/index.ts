@@ -3,24 +3,15 @@
 import { StdioServer } from "./transports/stdio.js"
 import { StreamableHttpServer } from "./transports/streamable-http.js"
 import { config } from "./config.js"
-import { SessionHandler } from "./handlers/session-handler.js"
 
 // Create and start the appropriate server
 async function runServer() {
   if (config.ENABLE_HTTP_SERVER) {
-    const sessionHandler = new SessionHandler({
-      maxConcurrentSessions: 100, // This could be configurable
-      sessionTimeoutMs: 30 * 60 * 1000, // This could be configurable
-    })
-
     // Start HTTP server
-    const server = new StreamableHttpServer(
-      {
-        port: config.HTTP_PORT,
-        host: config.HTTP_HOST,
-      },
-      sessionHandler,
-    )
+    const server = new StreamableHttpServer({
+      port: config.HTTP_PORT,
+      host: config.HTTP_HOST,
+    })
 
     // Handle graceful shutdown for HTTP server
     const shutdown = async () => {

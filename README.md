@@ -50,10 +50,10 @@ npm install
 npm run build
 
 # Run with stdio transport (default)
-npm start
+./bin/mcp-server.js
 
 # Or run with HTTP transport
-npm start -- --enable-http --http-port 3000
+./bin/mcp-server.js --enable-http --http-port 3000
 ```
 
 ### 3. Test the Server

@@ -413,8 +413,7 @@ export class StreamableHttpServer extends BaseTransportServer {
       throw new TransportError(ErrorCode.SESSION_LIMIT_EXCEEDED, "Max concurrent sessions reached")
     }
 
-    let transport: StreamableHTTPServerTransport
-    transport = new StreamableHTTPServerTransport({
+    const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (sid) => {
         this.transports[sid] = transport
