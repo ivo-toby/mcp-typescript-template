@@ -6,8 +6,6 @@ import {
   StreamableHttpServerOptions,
 } from "../../../src/transports/streamable-http"
 import { createMCPServer } from "../../../src/utils/server-factory"
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
-import { TransportError, ErrorCode } from "../../../src/types/errors"
 
 // Mock dependencies
 vi.mock("../../../src/utils/server-factory")
@@ -19,21 +17,20 @@ const mockTransport = {
   sessionId: "test-session-id",
   close: vi.fn().mockResolvedValue(undefined),
   onclose: undefined,
+  handleRequest: vi.fn().mockResolvedValue(undefined),
 }
 
 vi.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
   StreamableHTTPServerTransport: vi.fn().mockImplementation((options) => {
-    // Create a new transport object for each test
     const transport = {
       ...mockTransport,
-      sessionId: mockTransport.sessionId,
+      sessionId: "test-session-id",
       close: vi.fn().mockResolvedValue(undefined),
       onclose: undefined,
+      handleRequest: vi.fn().mockResolvedValue(undefined),
     }
 
-    // Simulate the session initialization callback synchronously
     if (options?.onsessioninitialized) {
-      // Call the callback immediately to simulate session initialization
       const sessionId = options.sessionIdGenerator
         ? options.sessionIdGenerator()
         : transport.sessionId
@@ -99,10 +96,9 @@ describe("StreamableHttpServer", () => {
     server = new StreamableHttpServer()
     const listenSpy = vi.spyOn(http.Server.prototype, "listen").mockImplementation(function (
       this: any,
-      port: any,
+      _port: any,
       callback: any,
     ) {
-      // Call the callback immediately to simulate successful start
       if (typeof callback === "function") {
         callback()
       }
@@ -112,7 +108,6 @@ describe("StreamableHttpServer", () => {
       this: any,
       callback?: any,
     ) {
-      // Call the callback immediately to simulate successful close
       if (typeof callback === "function") {
         callback()
       }
@@ -128,99 +123,57 @@ describe("StreamableHttpServer", () => {
     expect(closeSpy).toHaveBeenCalled()
   })
 
-  it("should handle session creation and cleanup", async () => {
-    server = new StreamableHttpServer({ sessionTimeoutMs: 1000 })
-
-    // Mock the HTTP server start
+  it("should cleanup sessions on stop", async () => {
+    server = new StreamableHttpServer()
     vi.spyOn(http.Server.prototype, "listen").mockImplementation(function (
       this: any,
-      port: any,
+      _port: any,
       callback: any,
     ) {
-      if (typeof callback === "function") {
-        callback()
-      }
+      if (callback) callback()
+      return this
+    })
+    vi.spyOn(http.Server.prototype, "close").mockImplementation(function (
+      this: any,
+      callback: any,
+    ) {
+      if (callback) callback()
       return this
     })
 
     await server.start()
+    await server.createNewSession()
+    await server.stop()
 
-    // Manually simulate a session to test cleanup behavior
-    const mockTransportForTest = {
-      sessionId: "test-session-id",
-      close: vi.fn().mockResolvedValue(undefined),
-      onclose: undefined,
-    }
-
-    // Add session to transports
-    // @ts-expect-error - private property access
-    server.transports["test-session-id"] = mockTransportForTest
-
-    // Simulate the actual timeout setup like the real implementation does
-    const timeoutId = setTimeout(() => {
-      // @ts-expect-error - private property access
-      delete server.transports["test-session-id"]
-      // @ts-expect-error - private property access
-      server.sessionTimeouts.delete("test-session-id")
-    }, 1000)
-
-    // @ts-expect-error - private property access
-    server.sessionTimeouts.set("test-session-id", timeoutId)
-
-    // Verify session is active
-    // @ts-expect-error - private property access
-    expect(server.transports["test-session-id"]).toBe(mockTransportForTest)
-    // @ts-expect-error - private property access
-    expect(server.sessionTimeouts.has("test-session-id")).toBe(true)
-
-    // Advance time to trigger cleanup
-    vi.advanceTimersByTime(1500)
-
-    // Verify session was cleaned up
-    // @ts-expect-error - private property access
-    expect(server.transports["test-session-id"]).toBeUndefined()
-    // @ts-expect-error - private property access
-    expect(server.sessionTimeouts.has("test-session-id")).toBe(false)
+    expect(server.getActiveSessions()).toHaveLength(0)
   })
 
-  it("should throw an error if max concurrent sessions is reached", async () => {
-    server = new StreamableHttpServer({ maxConcurrentSessions: 1 })
-
-    // Manually simulate that we have reached max sessions
-    const mockTransportForTest = {
-      sessionId: "test-session-1",
-      close: vi.fn().mockResolvedValue(undefined),
-      onclose: undefined,
-    }
+  it("should provide a health check", async () => {
+    server = new StreamableHttpServer()
+    const mockReq = {} as express.Request
+    const mockRes = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+    } as unknown as express.Response
 
     // @ts-expect-error - private property access
-    server.transports["test-session-1"] = mockTransportForTest
+    const healthCheckHandler = server.app._router.stack.find(
+      (r: any) => r.route && r.route.path === "/health",
+    ).route.stack[0].handle
 
-    // Test the checkConcurrentSessions logic directly
-    // @ts-expect-error - private property access
-    const currentSessions = Object.keys(server.transports).length
-    // @ts-expect-error - private property access
-    const maxSessions = server.options.maxConcurrentSessions || 100
+    await healthCheckHandler(mockReq, mockRes)
 
-    expect(currentSessions).toBe(1)
-    expect(maxSessions).toBe(1)
-    expect(() => {
-      if (currentSessions >= maxSessions) {
-        throw new TransportError(
-          "SERVER_OVERLOADED" as any,
-          "Maximum number of concurrent sessions reached",
-        )
-      }
-    }).toThrow(
-      new TransportError(
-        "SERVER_OVERLOADED" as any,
-        "Maximum number of concurrent sessions reached",
-      ),
+    expect(mockRes.status).toHaveBeenCalledWith(200)
+    expect(mockRes.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessions: {
+          active: 0,
+          max: 100,
+        },
+      }),
     )
   })
 
-  // This is a basic test. A full test would require mocking express req/res objects
-  // and testing the handleMCPRequest method, which is complex.
   it("should setup routes", async () => {
     server = new StreamableHttpServer()
     // @ts-expect-error

@@ -15,12 +15,13 @@ import { promptRegistry } from "../prompts/index.js"
 import { resourceRegistry } from "../resources/index.js"
 import { createMCPServer } from "../utils/server-factory.js"
 import { ErrorUtils, ToolError, PromptError, ResourceError, ErrorCode } from "../types/errors.js"
+import { EventEmitter } from "events"
 
 /**
  * Abstract base class for MCP transport servers
  * Provides common request handler setup and server configuration
  */
-export abstract class BaseTransportServer {
+export abstract class BaseTransportServer extends EventEmitter {
   /**
    * Creates a server instance with all handlers configured
    */

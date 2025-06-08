@@ -1,11 +1,11 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
-import { randomUUID } from "crypto"
 import express, { Request, Response, NextFunction } from "express"
 import cors from "cors"
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { BaseTransportServer } from "./base.js"
 import { TransportError, ErrorCode, ErrorUtils } from "../types/errors.js"
 import { createRateLimitMiddleware, RateLimitConfig } from "../utils/rate-limiter.js"
+import { randomUUID } from "crypto"
 
 /**
  * Configuration options for the HTTP server
@@ -33,10 +33,8 @@ export class StreamableHttpServer extends BaseTransportServer {
   private host: string
   private options: StreamableHttpServerOptions
   private rateLimiter?: ReturnType<typeof createRateLimitMiddleware>
-  private sessionTimeouts = new Map<string, NodeJS.Timeout>()
-
-  // Map to store transports by session ID
   private transports: Record<string, StreamableHTTPServerTransport> = {}
+  private sessionTimeouts = new Map<string, NodeJS.Timeout>()
 
   /**
    * Create a new HTTP server for MCP over HTTP
@@ -48,19 +46,19 @@ export class StreamableHttpServer extends BaseTransportServer {
     this.options = {
       port: 3000,
       host: "localhost",
-      requestTimeoutMs: 30000,
-      maxRequestSizeBytes: 10 * 1024 * 1024, // 10MB
-      enableRequestLogging: false,
+      corsOptions: { origin: "*" },
+      rateLimitConfig: { windowMs: 15 * 60 * 1000, maxRequests: 100 },
+      requestTimeoutMs: 10000,
+      maxRequestSizeBytes: 1024 * 1024 * 10, // 10MB
+      enableRequestLogging: true,
       maxConcurrentSessions: 100,
       sessionTimeoutMs: 30 * 60 * 1000, // 30 minutes
       ...options,
     }
+    this.app = express()
 
     this.port = this.options.port!
     this.host = this.options.host!
-
-    // Create Express app
-    this.app = express()
 
     // Set up middleware
     this.setupMiddleware()
@@ -211,8 +209,8 @@ export class StreamableHttpServer extends BaseTransportServer {
           status: "ok",
           timestamp: new Date().toISOString(),
           sessions: {
-            active: Object.keys(this.transports).length,
-            max: this.options.maxConcurrentSessions,
+            active: this.getActiveSessions().length,
+            max: this.getMaxSessions(),
           },
           rateLimit: stats || null,
         })
@@ -228,7 +226,7 @@ export class StreamableHttpServer extends BaseTransportServer {
     // Add session management endpoint
     this.app.get("/sessions", (req: Request, res: Response) => {
       try {
-        const sessions = Object.keys(this.transports).map((sessionId) => ({
+        const sessions = this.getActiveSessions().map((sessionId) => ({
           id: sessionId,
           createdAt: new Date().toISOString(), // Would need to track this
         }))
@@ -236,7 +234,7 @@ export class StreamableHttpServer extends BaseTransportServer {
         res.status(200).json({
           sessions,
           total: sessions.length,
-          max: this.options.maxConcurrentSessions,
+          max: this.getMaxSessions(),
         })
       } catch (error) {
         ErrorUtils.logError(error, "Session List")
@@ -248,25 +246,9 @@ export class StreamableHttpServer extends BaseTransportServer {
 
     // Add session cleanup endpoint (for debugging/admin)
     this.app.delete("/sessions/:sessionId", (req: Request, res: Response) => {
-      try {
-        const { sessionId } = req.params
-
-        if (this.transports[sessionId]) {
-          this.cleanupSession(sessionId)
-          res.status(200).json({
-            message: `Session ${sessionId} terminated`,
-          })
-        } else {
-          res.status(404).json({
-            error: "Session not found",
-          })
-        }
-      } catch (error) {
-        ErrorUtils.logError(error, "Session Cleanup")
-        res.status(500).json({
-          error: "Failed to cleanup session",
-        })
-      }
+      const { sessionId } = req.params
+      this.cleanupSession(sessionId)
+      res.status(204).send()
     })
   }
 
@@ -274,40 +256,21 @@ export class StreamableHttpServer extends BaseTransportServer {
    * Handle MCP requests with enhanced error handling
    */
   private async handleMCPRequest(req: Request, res: Response): Promise<void> {
-    // Check session limits
-    if (Object.keys(this.transports).length >= this.options.maxConcurrentSessions!) {
-      const error = new TransportError(
-        ErrorCode.SERVER_OVERLOADED,
-        "Maximum concurrent sessions reached",
-        {
-          maxSessions: this.options.maxConcurrentSessions,
-          currentSessions: Object.keys(this.transports).length,
-        },
-      )
-      res.status(503).json({
-        jsonrpc: "2.0",
-        error: error.toMCPError(),
-        id: null,
-      })
-      return
-    }
+    const { method } = req
 
-    if (req.method === "POST") {
-      await this.handlePostRequest(req, res)
-    } else if (req.method === "GET") {
-      await this.handleGetRequest(req, res)
-    } else if (req.method === "DELETE") {
-      await this.handleDeleteRequest(req, res)
-    } else {
-      const error = new TransportError(
-        ErrorCode.INVALID_REQUEST,
-        `Method ${req.method} not allowed`,
-      )
-      res.status(405).json({
-        jsonrpc: "2.0",
-        error: error.toMCPError(),
-        id: null,
-      })
+    switch (method) {
+      case "POST":
+        await this.handlePostRequest(req, res)
+        break
+      case "GET":
+        await this.handleGetRequest(req, res)
+        break
+      case "DELETE":
+        await this.handleDeleteRequest(req, res)
+        break
+      default:
+        res.setHeader("Allow", "POST, GET, DELETE")
+        res.status(405).json({ error: "Method Not Allowed" })
     }
   }
 
@@ -315,192 +278,65 @@ export class StreamableHttpServer extends BaseTransportServer {
    * Handle POST requests (main MCP communication)
    */
   private async handlePostRequest(req: Request, res: Response): Promise<void> {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined
-    let transport: StreamableHTTPServerTransport
+    const sessionId = req.header("mcp-session-id")
+    const isInitialize = isInitializeRequest(req.body)
 
-    if (sessionId && this.transports[sessionId]) {
-      // Reuse existing transport
-      transport = this.transports[sessionId]
-      this.refreshSessionTimeout(sessionId)
-    } else if (!sessionId && isInitializeRequest(req.body)) {
-      // Create new session
-      transport = await this.createNewSession()
+    if (isInitialize) {
+      const transport = await this.createNewSession()
+      await transport.handleRequest(req, res)
     } else {
-      // Invalid request
-      const error = new TransportError(
-        ErrorCode.TRANSPORT_INVALID_SESSION,
-        sessionId
-          ? "Session not found or expired"
-          : "No session ID provided for non-initialize request",
-        { sessionId },
-      )
-      res.status(400).json({
-        jsonrpc: "2.0",
-        error: error.toMCPError(),
-        id: null,
-      })
-      return
+      if (!sessionId) {
+        throw new TransportError(
+          ErrorCode.TRANSPORT_INVALID_SESSION,
+          "Missing mcp-session-id header",
+        )
+      }
+      const transport = this.getTransport(sessionId)
+      if (!transport) {
+        throw new TransportError(ErrorCode.TRANSPORT_INVALID_SESSION, "Invalid session ID")
+      }
+      this.refreshSessionTimeout(sessionId)
+      await transport.handleRequest(req, res)
     }
-
-    // Handle the request with timeout
-    await ErrorUtils.withTimeout(
-      transport.handleRequest(req, res, req.body),
-      this.options.requestTimeoutMs!,
-      "MCP request timed out",
-    )
   }
 
   /**
    * Handle GET requests (server-sent events)
    */
   private async handleGetRequest(req: Request, res: Response): Promise<void> {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined
+    const sessionId = req.header("mcp-session-id")
 
-    if (!sessionId || !this.transports[sessionId]) {
-      const error = new TransportError(
-        ErrorCode.TRANSPORT_INVALID_SESSION,
-        "Invalid or missing session ID for SSE connection",
-        { sessionId },
-      )
-      res.status(400).json({
-        jsonrpc: "2.0",
-        error: error.toMCPError(),
-        id: null,
-      })
-      return
+    if (!sessionId) {
+      throw new TransportError(ErrorCode.TRANSPORT_INVALID_SESSION, "Missing mcp-session-id header")
     }
 
-    const transport = this.transports[sessionId]
-    this.refreshSessionTimeout(sessionId)
+    const transport = this.getTransport(sessionId)
+    if (!transport) {
+      throw new TransportError(ErrorCode.TRANSPORT_INVALID_SESSION, "Invalid session ID")
+    }
 
-    await ErrorUtils.withTimeout(
-      transport.handleRequest(req, res),
-      this.options.requestTimeoutMs!,
-      "SSE connection timed out",
-    )
+    this.refreshSessionTimeout(sessionId)
+    await transport.handleRequest(req, res)
   }
 
   /**
    * Handle DELETE requests (session termination)
    */
   private async handleDeleteRequest(req: Request, res: Response): Promise<void> {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined
+    const sessionId = req.header("mcp-session-id")
 
-    if (!sessionId || !this.transports[sessionId]) {
-      const error = new TransportError(
-        ErrorCode.TRANSPORT_INVALID_SESSION,
-        "Invalid or missing session ID for termination",
-        { sessionId },
-      )
-      res.status(400).json({
-        jsonrpc: "2.0",
-        error: error.toMCPError(),
-        id: null,
-      })
-      return
+    if (!sessionId) {
+      throw new TransportError(ErrorCode.TRANSPORT_INVALID_SESSION, "Missing mcp-session-id header")
     }
 
-    const transport = this.transports[sessionId]
-
-    try {
-      await ErrorUtils.withTimeout(
-        transport.handleRequest(req, res),
-        this.options.requestTimeoutMs!,
-        "Session termination timed out",
-      )
-    } finally {
-      // Ensure cleanup happens even if the request fails
-      this.cleanupSession(sessionId)
+    const transport = this.getTransport(sessionId)
+    if (!transport) {
+      throw new TransportError(ErrorCode.TRANSPORT_INVALID_SESSION, "Invalid session ID")
     }
-  }
 
-  /**
-   * Create a new session with proper error handling
-   */
-  private async createNewSession(): Promise<StreamableHTTPServerTransport> {
-    try {
-      const server = this.createConfiguredServer()
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sid) => {
-          this.transports[sid] = transport
-          this.setupSessionTimeout(sid)
-          console.error(`Session ${sid} initialized`)
-        },
-      })
+    await transport.handleRequest(req, res)
 
-      // Clean up transport when closed
-      transport.onclose = () => {
-        if (transport.sessionId) {
-          this.cleanupSession(transport.sessionId)
-        }
-      }
-
-      // Connect to the MCP server with timeout
-      await ErrorUtils.withTimeout(
-        server.connect(transport),
-        5000, // 5 second timeout for connection
-        "Failed to initialize MCP session",
-      )
-
-      return transport
-    } catch (error) {
-      throw new TransportError(
-        ErrorCode.TRANSPORT_CONNECTION_FAILED,
-        "Failed to create new session",
-        { originalError: ErrorUtils.getErrorMessage(error) },
-      )
-    }
-  }
-
-  /**
-   * Set up session timeout
-   */
-  private setupSessionTimeout(sessionId: string): void {
-    const timeout = setTimeout(() => {
-      console.error(`Session ${sessionId} timed out`)
-      this.cleanupSession(sessionId)
-    }, this.options.sessionTimeoutMs!)
-
-    this.sessionTimeouts.set(sessionId, timeout)
-  }
-
-  /**
-   * Refresh session timeout
-   */
-  private refreshSessionTimeout(sessionId: string): void {
-    const existingTimeout = this.sessionTimeouts.get(sessionId)
-    if (existingTimeout) {
-      clearTimeout(existingTimeout)
-    }
-    this.setupSessionTimeout(sessionId)
-  }
-
-  /**
-   * Clean up a session and its resources
-   */
-  private cleanupSession(sessionId: string): void {
-    try {
-      // Clear timeout
-      const timeout = this.sessionTimeouts.get(sessionId)
-      if (timeout) {
-        clearTimeout(timeout)
-        this.sessionTimeouts.delete(sessionId)
-      }
-
-      // Close transport
-      const transport = this.transports[sessionId]
-      if (transport) {
-        transport.close().catch((error) => {
-          ErrorUtils.logError(error, `Session ${sessionId} cleanup`)
-        })
-        delete this.transports[sessionId]
-      }
-
-      console.error(`Session ${sessionId} cleaned up`)
-    } catch (error) {
-      ErrorUtils.logError(error, `Session ${sessionId} cleanup`)
-    }
+    this.cleanupSession(sessionId)
   }
 
   /**
@@ -532,68 +368,107 @@ export class StreamableHttpServer extends BaseTransportServer {
   public async stop(): Promise<void> {
     console.error("Stopping HTTP server...")
 
-    try {
-      // Stop accepting new connections
-      if (this.server) {
-        this.server.close()
-      }
+    // Clean up all sessions
+    const sessionIds = this.getActiveSessions()
+    console.error(`Cleaning up ${sessionIds.length} active sessions...`)
 
-      // Clean up all sessions
-      const sessionIds = Object.keys(this.transports)
-      console.error(`Cleaning up ${sessionIds.length} active sessions...`)
+    await Promise.allSettled(
+      sessionIds.map(async (sessionId) => {
+        try {
+          this.cleanupSession(sessionId)
+        } catch (error) {
+          ErrorUtils.logError(error, `Session ${sessionId} cleanup`)
+        }
+      }),
+    )
 
-      await Promise.allSettled(
-        sessionIds.map(async (sessionId) => {
-          try {
-            await ErrorUtils.withTimeout(
-              this.transports[sessionId].close(),
-              5000, // 5 second timeout for cleanup
-              `Session ${sessionId} cleanup timed out`,
-            )
-            this.cleanupSession(sessionId)
-          } catch (error) {
-            ErrorUtils.logError(error, `Session ${sessionId} cleanup`)
-          }
-        }),
-      )
-
-      // Clean up rate limiter
-      if (this.rateLimiter) {
-        this.rateLimiter.limiter.destroy()
-      }
-
-      // Clear all session timeouts
-      for (const timeout of this.sessionTimeouts.values()) {
-        clearTimeout(timeout)
-      }
-      this.sessionTimeouts.clear()
-
-      // Close the HTTP server
-      if (this.server) {
-        await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error("Server shutdown timed out"))
-          }, 10000) // 10 second timeout
-
-          this.server.close((err?: Error) => {
-            clearTimeout(timeout)
-            if (err) {
-              reject(err)
-            } else {
-              resolve()
-            }
-          })
-        })
-      }
-
-      console.error("HTTP server stopped successfully")
-    } catch (error) {
-      ErrorUtils.logError(error, "HTTP Server Shutdown")
-      throw new TransportError(
-        ErrorCode.SERVER_SHUTDOWN_FAILED,
-        "Failed to stop HTTP server gracefully",
-        { originalError: ErrorUtils.getErrorMessage(error) },
-      )
+    // Clean up rate limiter
+    if (this.rateLimiter) {
+      this.rateLimiter.limiter.destroy()
     }
+
+    // Close the HTTP server
+    if (this.server) {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Server shutdown timed out"))
+        }, 10000) // 10 second timeout
+
+        this.server.close((err?: Error) => {
+          clearTimeout(timeout)
+          if (err) {
+            reject(err)
+          } else {
+            resolve()
+          }
+        })
+      })
+    }
+
+    console.error("HTTP server stopped successfully")
+  }
+
+  public async createNewSession(): Promise<StreamableHTTPServerTransport> {
+    if (Object.keys(this.transports).length >= this.options.maxConcurrentSessions!) {
+      throw new TransportError(ErrorCode.SESSION_LIMIT_EXCEEDED, "Max concurrent sessions reached")
+    }
+
+    let transport: StreamableHTTPServerTransport
+    transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (sid) => {
+        this.transports[sid] = transport
+        this.setupSessionTimeout(sid)
+        this.emit("session-created", sid)
+      },
+    })
+
+    transport.onclose = () => {
+      if (transport.sessionId) {
+        this.cleanupSession(transport.sessionId)
+      }
+    }
+
+    return transport
+  }
+
+  public getTransport(sessionId: string): StreamableHTTPServerTransport | undefined {
+    return this.transports[sessionId]
+  }
+
+  public cleanupSession(sessionId: string): void {
+    const transport = this.transports[sessionId]
+    if (transport) {
+      transport.close()
+      delete this.transports[sessionId]
+      const timeout = this.sessionTimeouts.get(sessionId)
+      if (timeout) {
+        clearTimeout(timeout)
+        this.sessionTimeouts.delete(sessionId)
+      }
+      this.emit("session-ended", sessionId)
+    }
+  }
+
+  private setupSessionTimeout(sessionId: string): void {
+    const timeout = setTimeout(() => {
+      this.cleanupSession(sessionId)
+    }, this.options.sessionTimeoutMs)
+    this.sessionTimeouts.set(sessionId, timeout)
+  }
+
+  public refreshSessionTimeout(sessionId: string): void {
+    const timeout = this.sessionTimeouts.get(sessionId)
+    if (timeout) {
+      timeout.refresh()
+    }
+  }
+
+  public getActiveSessions() {
+    return Object.keys(this.transports)
+  }
+
+  public getMaxSessions() {
+    return this.options.maxConcurrentSessions
   }
 }

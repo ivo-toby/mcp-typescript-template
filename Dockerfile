@@ -27,9 +27,9 @@ COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/package.json /app/package.json
 
 # Environment variable for Contentful Management API token
-ENV CONTENTFUL_DELIVERY_ACCESS_TOKEN=your_contentful_management_api_token
-ENV SPACE_ID=your_space_id
-ENV ENVIRONMENT_ID=your_environment_id
+ENV ENABLE_HTTP_SERVER=true
+ENV HTTP_PORT=3000
+ENV HTTP_HOST=127.0.0.1
 
 # Expose any required ports (if needed by the application)
 # EXPOSE 3000
