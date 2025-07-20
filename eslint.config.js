@@ -17,9 +17,7 @@ export default tseslint.config(
           ignoreRestArgs: true,
         },
       ],
-      // Allow empty interfaces for configuration options that may be extended in the future
-      "@typescript-eslint/no-empty-interface": "off",
-      // Allow empty object types for configuration interfaces
+      // Allow empty object types for configuration interfaces (replaces no-empty-interface)
       "@typescript-eslint/no-empty-object-type": [
         "error",
         {
